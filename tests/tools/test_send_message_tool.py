@@ -623,6 +623,59 @@ class TestSendToPlatformChunking:
         finally:
             doc_path.unlink(missing_ok=True)
 
+    def test_feishu_media_uses_native_adapter_helper(self):
+
+        doc_path = Path("/tmp/test-send-message-feishu.xlsx")
+        doc_path.write_bytes(b"fake xlsx payload")
+
+        try:
+            helper = AsyncMock(return_value={"success": True, "platform": "feishu", "chat_id": "oc_123", "message_id": "msg1"})
+            with patch("tools.send_message_tool._send_feishu", helper):
+                result = asyncio.run(
+                    _send_to_platform(
+                        Platform.FEISHU,
+                        SimpleNamespace(enabled=True, extra={}),
+                        "oc_123",
+                        "report attached",
+                        media_files=[(str(doc_path), False)],
+                    )
+                )
+
+            assert result["success"] is True
+            helper.assert_awaited_once()
+            call = helper.await_args
+            assert call.args[1] == "oc_123"
+            assert call.args[2] == "report attached"
+            assert call.kwargs["media_files"] == [(str(doc_path), False)]
+        finally:
+            doc_path.unlink(missing_ok=True)
+
+    def test_feishu_media_only_send_is_allowed(self):
+
+        doc_path = Path("/tmp/test-send-message-feishu-only.xlsx")
+        doc_path.write_bytes(b"fake xlsx payload")
+
+        try:
+            helper = AsyncMock(return_value={"success": True, "platform": "feishu", "chat_id": "oc_123", "message_id": "msg2"})
+            with patch("tools.send_message_tool._send_feishu", helper):
+                result = asyncio.run(
+                    _send_to_platform(
+                        Platform.FEISHU,
+                        SimpleNamespace(enabled=True, extra={}),
+                        "oc_123",
+                        "",
+                        media_files=[(str(doc_path), False)],
+                    )
+                )
+
+            assert result["success"] is True
+            helper.assert_awaited_once()
+            call = helper.await_args
+            assert call.args[2] == ""
+            assert call.kwargs["media_files"] == [(str(doc_path), False)]
+        finally:
+            doc_path.unlink(missing_ok=True)
+
     def test_matrix_text_only_uses_lightweight_path(self):
         """Text-only Matrix sends should NOT go through the heavy adapter path."""
         helper = AsyncMock()

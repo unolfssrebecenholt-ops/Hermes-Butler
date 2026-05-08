@@ -280,6 +280,13 @@ class TestExtractMedia:
         media, _ = BasePlatformAdapter.extract_media(content)
         assert len(media) == 2
 
+    def test_document_media_tag_extracted(self):
+        content = "Spreadsheet ready:\nMEDIA:/tmp/report.xlsx"
+        media, cleaned = BasePlatformAdapter.extract_media(content)
+        assert media == [("/tmp/report.xlsx", False)]
+        assert "Spreadsheet ready" in cleaned
+        assert "MEDIA:" not in cleaned
+
     def test_voice_directive_removed_from_content(self):
         content = "[[audio_as_voice]]\nSome text\nMEDIA:/voice.ogg"
         _, cleaned = BasePlatformAdapter.extract_media(content)
@@ -581,4 +588,3 @@ class TestTruncateMessageUtf16:
             assert fence_count % 2 == 0, (
                 f"Chunk {i} has unbalanced fences ({fence_count})"
             )
-

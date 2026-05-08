@@ -117,7 +117,11 @@ SEND_MESSAGE_SCHEMA = {
             },
             "message": {
                 "type": "string",
-                "description": "The message text to send"
+                "description": (
+                    "The message text to send. You can include MEDIA:/absolute/path.ext "
+                    "tags to attach local files (images, audio, video, or documents such "
+                    "as .pdf/.docx/.xlsx) on platforms that support native media delivery."
+                )
             }
         },
         "required": []
@@ -489,6 +493,23 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
         for i, chunk in enumerate(chunks):
             is_last = (i == len(chunks) - 1)
             result = await _send_matrix_via_adapter(
+                pconfig,
+                chat_id,
+                chunk,
+                media_files=media_files if is_last else [],
+                thread_id=thread_id,
+            )
+            if isinstance(result, dict) and result.get("error"):
+                return result
+            last_result = result
+        return last_result
+
+    # --- Feishu: use the native adapter helper when media is present ---
+    if platform == Platform.FEISHU and media_files:
+        last_result = None
+        for i, chunk in enumerate(chunks):
+            is_last = (i == len(chunks) - 1)
+            result = await _send_feishu(
                 pconfig,
                 chat_id,
                 chunk,
