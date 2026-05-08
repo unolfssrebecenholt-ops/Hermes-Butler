@@ -130,6 +130,11 @@ class ProcessRegistry:
         "no job control in this shell",
         "cannot set terminal process group",
         "tcsetattr: Inappropriate ioctl for device",
+        "Inappropriate ioctl for device",
+        "bash: 无法设定终端进程组",
+        "bash: 无法设置终端进程组",
+        "bash: 此 shell 中无任务控制",
+        "bash: 此 shell 中无作业控制",
     )
 
     def __init__(self):

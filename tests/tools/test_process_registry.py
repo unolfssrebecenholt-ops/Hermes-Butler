@@ -65,6 +65,17 @@ def _wait_until(predicate, timeout: float = 5.0, interval: float = 0.05) -> bool
     return False
 
 
+class TestShellNoiseCleaning:
+    def test_clean_shell_noise_strips_localized_bash_job_control_warnings(self):
+        noisy = (
+            "bash: 无法设定终端进程组 (-1): Inappropriate ioctl for device\n"
+            "bash: 此 shell 中无任务控制\n"
+            "/Users/example/Downloads/image.png\n"
+        )
+
+        assert ProcessRegistry._clean_shell_noise(noisy) == "/Users/example/Downloads/image.png\n"
+
+
 # =========================================================================
 # Get / Poll
 # =========================================================================
