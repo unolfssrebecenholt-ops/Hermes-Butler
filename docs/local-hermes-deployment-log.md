@@ -140,6 +140,68 @@
 
 ## 4. 配置变更记录
 
+### 2026-05-11：OpenAI-compatible 中转站切换规范
+
+目标：
+- 让 Hermes 可以随时切换自定义 OpenAI-compatible 中转站
+- 避免再次因为中转站风控规则误判为模型或密钥失效
+
+当前推荐配置位置：
+- `~/.hermes/config.yaml`
+- `~/.hermes/.env`
+
+推荐 `config.yaml` 结构：
+
+```yaml
+model:
+  default: gpt-5.5
+  provider: relay
+  base_url: https://<relay-host>/v1
+
+providers:
+  relay:
+    name: Relay
+    base_url: https://<relay-host>/v1
+    key_env: RELAY_API_KEY
+    default_model: gpt-5.5
+```
+
+推荐 `.env` 结构：
+
+```bash
+RELAY_API_KEY=sk-...
+```
+
+注意：
+- 不要把真实中转站 key 写入文档或提交到仓库
+- `relay` 是用户自定义 provider 名称，运行时应解析为 `custom` OpenAI-compatible client
+- 如果出现 `Unknown provider 'relay'`，说明某条路径没有正确处理自定义 provider
+- 如果 `/v1/models` 成功，但聊天请求报 `HTTP 403: Your request was blocked`，优先检查中转站是否拦截 OpenAI Python SDK 默认 `User-Agent`
+- 2026-05-11 已在源码中补丁：普通自定义 OpenAI-compatible 中转站统一使用 `User-Agent: HermesAgent/1.0`
+- 保留特殊 provider 的专用 headers：OpenRouter、Kimi、Qwen Portal、Copilot、Gemini
+
+切换中转站后的标准操作：
+1. 修改 `~/.hermes/config.yaml` 的 `model.base_url` 和 `providers.<name>.base_url`
+2. 修改 `~/.hermes/.env` 中对应 `key_env` 的密钥值
+3. 确认模型名存在于中转站 `/v1/models`
+4. 重启网关：
+   `source venv/bin/activate && python -m hermes_cli.main gateway restart`
+5. 发送一条极短消息测试，例如 `你好`
+
+验证命令示例：
+
+```bash
+source venv/bin/activate
+python - <<'PY'
+from hermes_cli.env_loader import load_hermes_dotenv
+load_hermes_dotenv()
+from hermes_cli.runtime_provider import resolve_runtime_provider
+rt = resolve_runtime_provider()
+print(rt["provider"], rt["base_url"], rt["api_mode"], rt.get("requested_provider"))
+print("api_key:", "***redacted***" if rt.get("api_key") else "<empty>")
+PY
+```
+
 ### 2026-04-18：MiniMax China 配置
 
 修改位置：

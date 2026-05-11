@@ -78,6 +78,56 @@ hermes-agent/
 
 **User config:** `~/.hermes/config.yaml` (settings), `~/.hermes/.env` (API keys)
 
+## Local Relay / Transit Provider Notes
+
+This checkout is used as a personal computer-butler project and should support
+frequent switching between OpenAI-compatible relay/transit endpoints.
+
+Preferred config shape for a relay:
+
+```yaml
+model:
+  default: gpt-5.5
+  provider: relay
+  base_url: https://example-relay.invalid/v1
+
+providers:
+  relay:
+    name: Relay
+    base_url: https://example-relay.invalid/v1
+    key_env: RELAY_API_KEY
+    default_model: gpt-5.5
+```
+
+Store the secret only in `~/.hermes/.env`:
+
+```bash
+RELAY_API_KEY=sk-...
+```
+
+Rules for relay switching:
+- Do not paste or commit real relay keys. Record only env var names such as
+  `RELAY_API_KEY`.
+- A named relay like `relay` is a user-defined provider and should resolve to
+  the custom OpenAI-compatible runtime. If a path reports `Unknown provider
+  'relay'`, fix provider resolution instead of changing the user's provider
+  name.
+- Some relay frontends block the OpenAI SDK default
+  `User-Agent: OpenAI/Python ...` and return `HTTP 403: Your request was
+  blocked` even when `/v1/models`, the API key, and the model are valid.
+  Generic OpenAI-compatible endpoints must send `User-Agent:
+  HermesAgent/1.0`; keep provider-specific headers for OpenRouter, Kimi,
+  Qwen Portal, Copilot, and Gemini intact.
+- Main agent clients are created in `run_agent.py`; auxiliary clients for
+  compression, vision, and summarization are in `agent/auxiliary_client.py`.
+  Keep both paths relay-safe when editing client construction.
+- After changing relay config, restart the gateway with:
+  `source venv/bin/activate && python -m hermes_cli.main gateway restart`.
+- Quick live sanity check, without printing secrets:
+  load `~/.hermes/.env`, resolve runtime, then send a tiny
+  `chat.completions.create` request with `default_headers={"User-Agent":
+  "HermesAgent/1.0"}`.
+
 ## File Dependency Chain
 
 ```
