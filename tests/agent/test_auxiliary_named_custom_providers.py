@@ -130,6 +130,29 @@ class TestResolveProviderClientNamedCustom:
         # Should use _read_main_model() fallback
         assert model == "main-model"
 
+    def test_named_custom_provider_uses_generic_user_agent(self, tmp_path):
+        _write_config(tmp_path, {
+            "model": {"default": "gpt-5.5", "provider": "relay"},
+            "providers": {
+                "relay": {
+                    "name": "Relay",
+                    "base_url": "https://sub.example.test/v1",
+                    "api_key": "k",
+                    "default_model": "gpt-5.5",
+                },
+            },
+        })
+        with patch("agent.auxiliary_client.OpenAI") as mock_openai:
+            mock_openai.return_value = MagicMock()
+            from agent.auxiliary_client import resolve_provider_client
+
+            client, model = resolve_provider_client("relay", "gpt-5.5")
+
+        assert client is not None
+        assert model == "gpt-5.5"
+        headers = mock_openai.call_args.kwargs["default_headers"]
+        assert headers["User-Agent"] == "HermesAgent/1.0"
+
     def test_named_custom_no_api_key_uses_fallback(self, tmp_path):
         _write_config(tmp_path, {
             "model": {"default": "test"},

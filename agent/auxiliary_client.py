@@ -105,6 +105,22 @@ def _fixed_temperature_for_model(model: Optional[str]) -> Optional[float]:
     normalized = (model or "").strip().lower()
     return _FIXED_TEMPERATURE_MODELS.get(normalized)
 
+
+def _openai_compat_headers_for_base_url(base_url: str, *, api_key: str = "") -> tuple[Dict[str, str], str]:
+    """Return provider headers and possibly adjusted api_key for OpenAI-compatible clients."""
+    normalized = (base_url or "").lower()
+    if "api.kimi.com" in normalized:
+        return {"User-Agent": "KimiCLI/1.30.0"}, api_key
+    if "api.githubcopilot.com" in normalized:
+        from hermes_cli.models import copilot_default_headers
+
+        return copilot_default_headers(), api_key
+    if "generativelanguage.googleapis.com" in normalized:
+        # Google's endpoint rejects Authorization: Bearer; pass the real key
+        # via x-goog-api-key and suppress the SDK's bearer injection.
+        return {"x-goog-api-key": api_key}, "not-used"
+    return {"User-Agent": "HermesAgent/1.0"}, api_key
+
 # Default auxiliary models for direct API-key providers (cheap/fast for side tasks)
 _API_KEY_PROVIDER_AUX_MODELS: Dict[str, str] = {
     "gemini": "gemini-3-flash-preview",
@@ -738,22 +754,8 @@ def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
             if model is None:
                 continue  # skip provider if we don't know a valid aux model
             logger.debug("Auxiliary text client: %s (%s) via pool", pconfig.name, model)
-            extra = {}
-            if "api.kimi.com" in base_url.lower():
-                extra["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
-            elif "api.githubcopilot.com" in base_url.lower():
-                from hermes_cli.models import copilot_default_headers
-
-                extra["default_headers"] = copilot_default_headers()
-            elif "generativelanguage.googleapis.com" in base_url.lower():
-                # Google's OpenAI-compatible endpoint only accepts x-goog-api-key.
-                # Passing api_key= causes the SDK to inject Authorization: Bearer,
-                # which Google rejects with HTTP 400 "Multiple authentication
-                # credentials received". Use a placeholder for api_key and pass
-                # the real key via x-goog-api-key header instead.
-                # Fixes: https://github.com/NousResearch/hermes-agent/issues/7893
-                extra["default_headers"] = {"x-goog-api-key": api_key}
-                api_key = "not-used"
+            headers, api_key = _openai_compat_headers_for_base_url(base_url, api_key=api_key)
+            extra = {"default_headers": headers}
             return OpenAI(api_key=api_key, base_url=base_url, **extra), model
 
         creds = resolve_api_key_provider_credentials(provider_id)
@@ -768,22 +770,8 @@ def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
         if model is None:
             continue  # skip provider if we don't know a valid aux model
         logger.debug("Auxiliary text client: %s (%s)", pconfig.name, model)
-        extra = {}
-        if "api.kimi.com" in base_url.lower():
-            extra["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
-        elif "api.githubcopilot.com" in base_url.lower():
-            from hermes_cli.models import copilot_default_headers
-
-            extra["default_headers"] = copilot_default_headers()
-        elif "generativelanguage.googleapis.com" in base_url.lower():
-            # Google's OpenAI-compatible endpoint only accepts x-goog-api-key.
-            # Passing api_key= causes the SDK to inject Authorization: Bearer,
-            # which Google rejects with HTTP 400 "Multiple authentication
-            # credentials received". Use a placeholder for api_key and pass
-            # the real key via x-goog-api-key header instead.
-            # Fixes: https://github.com/NousResearch/hermes-agent/issues/7893
-            extra["default_headers"] = {"x-goog-api-key": api_key}
-            api_key = "not-used"
+        headers, api_key = _openai_compat_headers_for_base_url(base_url, api_key=api_key)
+        extra = {"default_headers": headers}
         return OpenAI(api_key=api_key, base_url=base_url, **extra), model
 
     return None, None
@@ -1010,10 +998,12 @@ def _try_custom_endpoint() -> Tuple[Optional[OpenAI], Optional[str]]:
         return None, None
     model = _read_main_model() or "gpt-4o-mini"
     logger.debug("Auxiliary client: custom endpoint (%s, api_mode=%s)", model, custom_mode or "chat_completions")
+    headers, custom_key = _openai_compat_headers_for_base_url(custom_base, api_key=custom_key)
+    extra = {"default_headers": headers}
     if custom_mode == "codex_responses":
-        real_client = OpenAI(api_key=custom_key, base_url=custom_base)
+        real_client = OpenAI(api_key=custom_key, base_url=custom_base, **extra)
         return CodexAuxiliaryClient(real_client, model), model
-    return OpenAI(api_key=custom_key, base_url=custom_base), model
+    return OpenAI(api_key=custom_key, base_url=custom_base, **extra), model
 
 
 def _try_codex() -> Tuple[Optional[Any], Optional[str]]:
@@ -1349,6 +1339,10 @@ def _to_async_client(sync_client, model: str):
         async_kwargs["default_headers"] = copilot_default_headers()
     elif "api.kimi.com" in base_lower:
         async_kwargs["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
+    else:
+        headers, api_key = _openai_compat_headers_for_base_url(base_lower, api_key=str(sync_client.api_key))
+        async_kwargs["default_headers"] = headers
+        async_kwargs["api_key"] = api_key
     return AsyncOpenAI(**async_kwargs), model
 
 
@@ -1524,12 +1518,8 @@ def resolve_provider_client(
                 model or _read_main_model() or "gpt-4o-mini",
                 provider,
             )
-            extra = {}
-            if "api.kimi.com" in custom_base.lower():
-                extra["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
-            elif "api.githubcopilot.com" in custom_base.lower():
-                from hermes_cli.models import copilot_default_headers
-                extra["default_headers"] = copilot_default_headers()
+            headers, custom_key = _openai_compat_headers_for_base_url(custom_base, api_key=custom_key)
+            extra = {"default_headers": headers}
             client = OpenAI(api_key=custom_key, base_url=custom_base, **extra)
             client = _wrap_if_needed(client, final_model, custom_base)
             return (_to_async_client(client, final_model) if async_mode
@@ -1564,7 +1554,12 @@ def resolve_provider_client(
                     model or custom_entry.get("model") or _read_main_model() or "gpt-4o-mini",
                     provider,
                 )
-                client = OpenAI(api_key=custom_key, base_url=custom_base)
+                headers, custom_key = _openai_compat_headers_for_base_url(custom_base, api_key=custom_key)
+                client = OpenAI(
+                    api_key=custom_key,
+                    base_url=custom_base,
+                    default_headers=headers,
+                )
                 client = _wrap_if_needed(client, final_model, custom_base)
                 logger.debug(
                     "resolve_provider_client: named custom provider %r (%s)",
@@ -1621,26 +1616,10 @@ def resolve_provider_client(
         default_model = _API_KEY_PROVIDER_AUX_MODELS.get(provider, "")
         final_model = _normalize_resolved_model(model or default_model, provider)
 
-        # Provider-specific headers
-        headers = {}
-        if "api.kimi.com" in base_url.lower():
-            headers["User-Agent"] = "KimiCLI/1.30.0"
-        elif "api.githubcopilot.com" in base_url.lower():
-            from hermes_cli.models import copilot_default_headers
-
-            headers.update(copilot_default_headers())
-        elif "generativelanguage.googleapis.com" in base_url.lower():
-            # Google's OpenAI-compatible endpoint only accepts x-goog-api-key.
-            # Passing api_key= causes the OpenAI SDK to inject Authorization: Bearer,
-            # which Google rejects with HTTP 400 "Multiple authentication credentials
-            # received". Use a placeholder for api_key and pass the real key via
-            # x-goog-api-key header instead.
-            # Fixes: https://github.com/NousResearch/hermes-agent/issues/7893
-            headers["x-goog-api-key"] = api_key
-            api_key = "not-used"
+        headers, api_key = _openai_compat_headers_for_base_url(base_url, api_key=api_key)
 
         client = OpenAI(api_key=api_key, base_url=base_url,
-                        **({"default_headers": headers} if headers else {}))
+                        default_headers=headers)
 
         # Copilot GPT-5+ models (except gpt-5-mini) require the Responses
         # API — they are not accessible via /chat/completions.  Wrap the

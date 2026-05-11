@@ -585,6 +585,17 @@ def _qwen_portal_headers() -> dict:
     }
 
 
+def _generic_openai_compat_headers() -> dict:
+    """Return headers for custom OpenAI-compatible gateways.
+
+    Some self-hosted relay frontends block the OpenAI SDK's default
+    ``User-Agent: OpenAI/Python ...`` while accepting normal API traffic.
+    Use a stable Hermes UA for generic custom endpoints, without overriding
+    provider-specific headers set elsewhere.
+    """
+    return {"User-Agent": "HermesAgent/1.0"}
+
+
 class AIAgent:
     """
     AI Agent with tool calling capabilities.
@@ -1054,6 +1065,8 @@ class AIAgent:
                     real_key = client_kwargs["api_key"]
                     client_kwargs["api_key"] = "not-used"
                     client_kwargs["default_headers"] = {"x-goog-api-key": real_key}
+                else:
+                    client_kwargs["default_headers"] = _generic_openai_compat_headers()
             else:
                 # No explicit creds — use the centralized provider router
                 from agent.auxiliary_client import resolve_provider_client
@@ -1806,6 +1819,7 @@ class AIAgent:
                 "api_key": effective_key,
                 "base_url": effective_base,
             }
+            self._apply_client_headers_for_base_url(effective_base)
             self.client = self._create_openai_client(
                 dict(self._client_kwargs),
                 reason="switch_model",
@@ -5124,7 +5138,7 @@ class AIAgent:
                 "x-goog-api-key": real_key or self._client_kwargs.get("api_key", ""),
             }
         else:
-            self._client_kwargs.pop("default_headers", None)
+            self._client_kwargs["default_headers"] = _generic_openai_compat_headers()
 
     def _swap_credential(self, entry) -> None:
         runtime_key = getattr(entry, "runtime_api_key", None) or getattr(entry, "access_token", "")
